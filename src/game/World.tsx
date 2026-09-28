@@ -34,23 +34,32 @@ const GRAPPLE_MAX = ROOM.r / 4;
 const GRAPPLE_K = 45;
 const BOSS_S = 12;
 const BOSS_ZONE = 60;
-const BLUE_N = 16;
-const BLUE_SPEED = 60;
+const BLUE_N = 48;
+const BLUE_SPEED = 90;
+const BLUE_DASH = 240;
+const BLUE_CLEAR_N = 20;
 const BLUE_HP = 10;
-const BOSS_BULLET_DMG = 10;
+const BOSS_BULLET_DMG = 20;
 const BIG_DMG = 50;
 const AOE_DMG = 30;
-const SWORD_R = 10;
+const SWORD_R = 15;
+const STUN_TIME = 1;
+const BOMB_BIG_TIME = 5;
 const SUMMON_HP = 5;
 const PLATE_R = BOSS_S * 3;
+const PLATE_HIT_R = PLATE_R * 2;
+const PLATE_DMG = 25;
 const PLATE_SPEED = 190;
+const WAVE_H = 0.5 * 3.45 * TABLE_S; // half a table tall
+const WAVE_SPEED = 140;
+const WAVE_DMG = 20;
 const R = ROOM.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
 type Bullet = { pos: THREE.Vector3; prev: THREE.Vector3; vel: THREE.Vector3; life: number; alive: boolean; dmg: number };
 type Table = {
   alive: boolean; pos: THREE.Vector3; vy: number; hp: number; target: THREE.Vector3; shootT: number;
-  jumpT: number; jumpsLeft: number; dashT: number; dash: THREE.Vector3; bob: number; s: number; yaw: number; summoned: boolean;
+  jumpT: number; jumpsLeft: number; dashT: number; dash: THREE.Vector3; bob: number; s: number; yaw: number; summoned: boolean; passive: boolean;
 };
 type Splinter = { pos: THREE.Vector3; vel: THREE.Vector3; rot: THREE.Euler; spin: THREE.Vector3; life: number; size: number };
 type Hazard = { active: boolean; kind: "quarter" | "sword" | "stomp" | "aoe"; t: number; total: number; fx: number; x: number; z: number; a0: number };
@@ -166,7 +175,7 @@ const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 function newTable(): Table {
   return {
     alive: false, pos: new THREE.Vector3(), vy: 0, hp: TABLE_HP, target: new THREE.Vector3(), shootT: 1,
-    jumpT: 2, jumpsLeft: 0, dashT: 3, dash: new THREE.Vector3(), bob: 0, s: TABLE_S, yaw: 0, summoned: false,
+    jumpT: 2, jumpsLeft: 0, dashT: 3, dash: new THREE.Vector3(), bob: 0, s: TABLE_S, yaw: 0, summoned: false, passive: false,
   };
 }
 
@@ -201,6 +210,12 @@ export function World() {
   const blueLeg = useRef<THREE.InstancedMesh>(null);
   const boss = useRef({ landed: false, y: ROOM.h, vy: 0, pos: new THREE.Vector3(), bulletT: 1, specialT: 2, next: "sword" as "sword" | "stomp", quarterT: 3, aoeT: 5, yaw: 0 });
   const plate = useRef({ alive: false, pos: new THREE.Vector3(), prev: new THREE.Vector3(), vel: new THREE.Vector3() });
+  const waves = useMemo(() => Array.from({ length: 6 }, () => ({ active: false, r: 0, x: 0, z: 0, hit: false })), []);
+  const waveRefs = useRef<(THREE.Mesh | null)[]>([]);
+  const lastRespawn = useRef(0);
+  const tutSetup = useRef(-1);
+  const tutDist = useRef(0);
+  const tutKills = useRef(0);
 
   const topI = useRef<THREE.InstancedMesh>(null);
   const legI = useRef<THREE.InstancedMesh>(null);
@@ -223,7 +238,7 @@ export function World() {
   const aliveCount = () => tables.reduce((n, t) => n + (t.alive ? 1 : 0), 0);
   const spawnTable = (at?: THREE.Vector3, summoned = false) => {
     const t = tables.find((x) => !x.alive);
-    if (!t) return;
+    if (!t) return null;
     Object.assign(t, newTable());
     t.alive = true;
     t.summoned = summoned;
@@ -231,12 +246,35 @@ export function World() {
     t.pos.copy(at ?? randomFloor(pos.current));
     t.target.copy(randomFloor(t.pos));
     t.shootT = 1 + Math.random();
+    return t;
+  };
+  const spawnBlue = (at: THREE.Vector3) => {
+    const u = blues.find((x) => !x.alive);
+    if (!u) return;
+    Object.assign(u, { alive: true, hp: BLUE_HP, hitCd: 0, dashT: 6 + Math.random() * 8 });
+    u.pos.copy(at).setY(0);
+    clampCircle(u.pos, 3 * TABLE_S);
+    u.dash.set(0, 0, 0);
+  };
+  const addWave = (x: number, z: number) => {
+    const w = waves.find((q) => !q.active) ?? waves[0]!;
+    Object.assign(w, { active: true, r: BOSS_S * 3, x, z, hit: false });
   };
   const damagePlayer = (d: number, force = false) => {
     if (!force && G.buff > 0) return;
     G.playerHp = Math.max(0, G.playerHp - d);
     G.hurtFlash = 0.25;
     if (G.playerHp <= 0) {
+      if (G.mode === "tutorial") {
+        G.playerHp = 100;
+        return;
+      }
+      if (G.stage !== "tables") {
+        // checkpoint: back to the boss warning, parry stays compromised
+        Object.assign(G, { playerHp: 100, stage: "incoming", bossWarn: BOSS_WARN, bossHits: 0, bossTime: 0, respawnMsg: 2.5, stun: 0 });
+        G.respawnToken++;
+        return;
+      }
       G.phase = "lost";
       document.exitPointerLock?.();
     }
@@ -263,14 +301,12 @@ export function World() {
     t.alive = false;
     G.kills++;
     burst(tmpV.copy(t.pos).setY(t.pos.y + 3 * t.s), t.s, 7);
-    if (!G.capReached) {
+    if (G.mode === "game" && !G.capReached && G.stage === "tables") {
       for (let i = 0; i < 2; i++) if (aliveCount() < TABLE_CAP) spawnTable();
-      if (aliveCount() >= TABLE_CAP) G.capReached = true;
-    }
-    if (G.capReached && aliveCount() === 0 && G.stage === "tables") {
-      G.stage = "incoming";
-      G.bossWarn = BOSS_WARN;
-      G.playerHp = 100;
+      if (aliveCount() >= TABLE_CAP) {
+        G.capReached = true;
+        for (let i = 0; i < BLUE_CLEAR_N; i++) spawnBlue(randomFloor(pos.current));
+      }
     }
   };
   const hitBoss = (n: number) => {
@@ -291,14 +327,16 @@ export function World() {
   const bossLive = () => G.stage === "boss";
   const explode = (at: THREE.Vector3) => {
     const buffed = G.buff > 0;
-    for (const t of tables) if (t.alive && t.pos.distanceTo(at) < BOMB_R) hitTable(t, BOMB_DMG * (buffed ? 2 : 1));
-    for (const u of blues) if (u.alive && u.pos.distanceTo(at) < BOMB_R) { u.alive = false; burst(tmpV.copy(u.pos).setY(4), TABLE_S, 5); }
-    if (bossLive() && tmpV.set(boss.current.pos.x, boss.current.y + 10, boss.current.pos.z).distanceTo(at) < BOMB_R + 30)
+    const br = BOMB_R * (G.bombBig > 0 ? 1.5 : 1);
+    G.tut.bombed = true;
+    for (const t of tables) if (t.alive && t.pos.distanceTo(at) < br) hitTable(t, BOMB_DMG * (buffed ? 2 : 1));
+    for (const u of blues) if (u.alive && u.pos.distanceTo(at) < br) { u.alive = false; burst(tmpV.copy(u.pos).setY(4), TABLE_S, 5); }
+    if (bossLive() && tmpV.set(boss.current.pos.x, boss.current.y + 10, boss.current.pos.z).distanceTo(at) < br + 30)
       hitBoss((BOMB_DMG / DMG) * (buffed ? 2 : 1));
     const bm = booms.find((x) => x.t <= 0) ?? booms[0]!;
     bm.t = 0.5;
     bm.pos.copy(at);
-    bm.r = BOMB_R;
+    bm.r = br;
     G.shake = 0.6;
   };
   const addHazard = (kind: Hazard["kind"], x: number, z: number, t: number) => {
