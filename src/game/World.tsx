@@ -368,7 +368,9 @@ export function World() {
       const wasDown = keys.current[e.code];
       keys.current[e.code] = true;
       if (G.phase !== "playing" || !G.locked || wasDown || e.repeat) return;
-      if (e.code === "KeyE" && G.parryCd <= 0) {
+      if (e.code === "Enter") G.tut.enter = true;
+      if (G.countdown > 0.6 || G.stun > 0) return;
+      if (e.code === "KeyE" && G.parryCd <= 0 && !G.parryLocked) {
         G.parryWin = PARRY_WINDOW;
         G.parryCd = PARRY_CD;
       }
@@ -387,6 +389,7 @@ export function World() {
           if (keys.current["KeyA"]) d.sub(r);
           if (d.lengthSq() === 0) d.copy(f);
           hv.current.addScaledVector(d.normalize(), DASH_SPEED);
+          G.tut.dashed = true;
           if (hv.current.length() > MAX_HSPEED) hv.current.setLength(MAX_HSPEED);
           if (grounded.current) G.dashCd = DASH_CD;
           else {
@@ -436,6 +439,14 @@ export function World() {
     window.addEventListener("mousedown", md);
     window.addEventListener("mouseup", mu);
     window.addEventListener("contextmenu", cm);
+    const wh = (e: WheelEvent) => {
+      if (!G.locked || !G.scoped) return;
+      e.preventDefault();
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1);
+      G.zoomFov = THREE.MathUtils.clamp(G.zoomFov * Math.exp(dy * 0.0015), 6, 60);
+      G.tut.zoomed = true;
+    };
+    window.addEventListener("wheel", wh, { passive: false });
     return () => {
       setLocker(null);
       document.removeEventListener("pointerlockchange", onLock);
@@ -444,6 +455,7 @@ export function World() {
       window.removeEventListener("mousedown", md);
       window.removeEventListener("mouseup", mu);
       window.removeEventListener("contextmenu", cm);
+      window.removeEventListener("wheel", wh);
     };
   }, [camera]);
 
@@ -453,12 +465,12 @@ export function World() {
     const p = pos.current;
     const b = boss.current;
 
-    if (lastReset.current !== G.resetToken) {
-      lastReset.current = G.resetToken;
+    const clearArena = () => {
       p.copy(START);
       hv.current.set(0, 0, 0);
       vy.current = 0;
       grounded.current = true;
+      G.grappling = false;
       cam.position.set(p.x, EYE, p.z);
       cam.lookAt(0, EYE, -100);
       lastYaw.current = new THREE.Euler().setFromQuaternion(cam.quaternion, "YXZ").y;
@@ -470,32 +482,49 @@ export function World() {
       blueT.current = 6;
       summonT.current = 10;
       hazards.forEach((h) => (h.active = false));
-      splinters.length = 0;
+      waves.forEach((w) => (w.active = false));
       bomb.current.alive = false;
       plate.current.alive = false;
       Object.assign(b, { landed: false, y: ROOM.h, vy: 0, bulletT: 1, specialT: 2, next: "sword", quarterT: 3, aoeT: 5 });
       b.pos.set(0, 0, 0);
-      if (G.phase === "playing") spawnTable(BOT_START);
-      else spawnTable(BOT_START.clone());
+    };
+    if (lastReset.current !== G.resetToken) {
+      lastReset.current = G.resetToken;
+      lastRespawn.current = G.respawnToken;
+      tutSetup.current = -1;
+      clearArena();
+      splinters.length = 0;
+      if (G.mode === "game") spawnTable(BOT_START.clone());
+    }
+    if (lastRespawn.current !== G.respawnToken) {
+      lastRespawn.current = G.respawnToken;
+      clearArena();
     }
 
-    const targetFov = G.scoped ? 28 : 80;
+    const targetFov = G.scoped ? G.zoomFov : 80;
     cam.fov = THREE.MathUtils.lerp(cam.fov, targetFov, 1 - Math.exp(-14 * dt));
     cam.updateProjectionMatrix();
 
-    const active = G.phase === "playing" && G.locked;
+    if (G.phase === "playing" && G.locked && G.countdown > 0) G.countdown = Math.max(0, G.countdown - dt);
+    const active = G.phase === "playing" && G.locked && G.countdown <= 0.6;
     G.hitFlash = Math.max(0, G.hitFlash - dt);
     G.hurtFlash = Math.max(0, G.hurtFlash - dt);
     G.parryFlash = Math.max(0, G.parryFlash - dt);
     G.redFlash = Math.max(0, G.redFlash - dt);
 
     if (active) {
-      G.time += dt;
+      if (G.mode === "game") G.time += dt;
       G.parryWin = Math.max(0, G.parryWin - dt);
       G.parryCd = Math.max(0, G.parryCd - dt);
       G.buff = Math.max(0, G.buff - dt);
       G.dashCd = Math.max(0, G.dashCd - dt);
       G.bombCd = Math.max(0, G.bombCd - dt);
+      G.stun = Math.max(0, G.stun - dt);
+      G.bombBig = Math.max(0, G.bombBig - dt);
+      G.compromisedT = Math.max(0, G.compromisedT - dt);
+      G.respawnMsg = Math.max(0, G.respawnMsg - dt);
+      if (G.parryLocked) G.parryWin = 0;
+      const stunned = G.stun > 0;
       const buffed = G.buff > 0;
 
       // --- camera-locked velocity (adaptive lag: slow = instant, fast = slight lag) ---
