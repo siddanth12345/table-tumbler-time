@@ -55,13 +55,37 @@ function MiniMap() {
 function HUD() {
   useTick(50);
   const playing = G.phase === "playing";
-  if (G.phase === "won") return null;
+  if (G.phase === "won" || G.phase === "home") return null;
+  const step = TUT_STEPS[G.tutStep];
   return (
     <div className="pointer-events-none fixed inset-0 z-10 select-none font-mono text-hud">
       {G.hurtFlash > 0 && <div className="absolute inset-0 bg-destructive/25" />}
       {G.redFlash > 0 && <div className="absolute inset-0 bg-destructive/40" />}
       {(G.buff > 0 || G.parryFlash > 0) && <div className="absolute inset-0 shadow-[inset_0_0_120px_var(--shield)]" />}
       {G.scoped && playing && <div className="absolute inset-0 bg-[radial-gradient(circle,transparent_32%,var(--scope)_34%)]" />}
+      {playing && G.locked && G.countdown > 0 && (
+        <div className="absolute inset-0 flex items-center justify-center text-9xl font-black drop-shadow-[0_4px_0_rgba(0,0,0,0.6)]">
+          {G.countdown > 0.6 ? Math.ceil(G.countdown - 0.6) : "GO!"}
+        </div>
+      )}
+      {G.stun > 0 && playing && (
+        <div className="absolute left-1/2 top-[38%] -translate-x-1/2 text-4xl font-black uppercase text-destructive">Stunned</div>
+      )}
+      {G.compromisedT > 0 && playing && (
+        <div className="absolute left-1/2 top-[28%] -translate-x-1/2 text-center text-6xl font-black uppercase text-shield drop-shadow-[0_3px_0_rgba(0,0,0,0.7)]">
+          Parry compromised
+        </div>
+      )}
+      {G.respawnMsg > 0 && playing && (
+        <div className="absolute left-1/2 top-[20%] -translate-x-1/2 rounded bg-hud-panel px-6 py-3 text-2xl font-black uppercase">Back to the boss checkpoint</div>
+      )}
+      {G.mode === "tutorial" && playing && step && (
+        <div className="absolute left-1/2 top-6 w-[min(40rem,60vw)] -translate-x-1/2 rounded border-2 border-shield/60 bg-hud-panel p-4 text-center">
+          <div className="text-xs uppercase tracking-widest opacity-70">Tutorial {G.tutStep + 1} / {TUT_STEPS.length} · Esc for menu</div>
+          <div className="mt-1 text-2xl font-black uppercase">{step.title}</div>
+          <div className="mt-2 text-sm">{step.text}</div>
+        </div>
+      )}
 
       {playing && (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
