@@ -4,7 +4,7 @@ import { Environment, Lightformer } from "@react-three/drei";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { World } from "./World";
-import { G, MAG, PARRY_CD, DASH_CD, BOMB_CD, TABLE_CAP, BOSS_HITS, resetGame, lockPointer, MAP } from "./state";
+import { G, MAG, PARRY_CD, DASH_CD, BOMB_CD, TABLE_CAP, BOSS_HITS, resetGame, lockPointer, MAP, TUT_STEPS, goHome, finishTutorial } from "./state";
 import { ROOM, SOLIDS } from "./Room";
 
 function useTick(ms: number) {
@@ -81,6 +81,7 @@ function HUD() {
         {G.stage === "tables" && (
           <>
             <div>Tables alive: {G.alive}{G.capReached ? " — clear them all!" : ` / ${TABLE_CAP}`}</div>
+            {G.bluesAlive > 0 && <div className="text-shield">Blue tables: {G.bluesAlive}</div>}
             <div className="opacity-70">Kills: {G.kills}</div>
           </>
         )}
@@ -100,7 +101,7 @@ function HUD() {
         <Bar label="Your Health" value={G.playerHp} tone="crosshair" />
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold uppercase tracking-widest">
           <span className={G.buff > 0 ? "text-shield" : ""}>
-            [E] Parry {G.buff > 0 ? `POWER ${G.buff.toFixed(1)}s` : G.parryWin > 0 ? "ACTIVE" : G.parryCd > 0 ? G.parryCd.toFixed(1) : "ready"}
+            [E] Parry {G.buff > 0 ? `POWER ${G.buff.toFixed(1)}s` : G.parryLocked ? "COMPROMISED" : G.parryWin > 0 ? "ACTIVE" : G.parryCd > 0 ? G.parryCd.toFixed(1) : "ready"}
           </span>
           <span>[Q] Dash {G.dashCd > 0 ? G.dashCd.toFixed(1) : "ready"}</span>
           <span>[F] Bomb {G.bombCd > 0 ? G.bombCd.toFixed(1) : "ready"}</span>
@@ -132,44 +133,123 @@ function HUD() {
   );
 }
 
-function start(restart: boolean) {
-  if (restart || G.phase !== "playing") resetGame();
+const btnMain = "pointer-events-auto rounded bg-crosshair px-8 py-3 text-lg font-black uppercase text-hud-ink";
+const btnAlt = "pointer-events-auto rounded border-2 border-hud/40 px-8 py-3 text-lg font-black uppercase";
+
+function playGame() {
+  resetGame("game");
   lockPointer();
+}
+function startTutorial() {
+  resetGame("tutorial");
+  lockPointer();
+}
+function resume() {
+  G.countdown = 3.6;
+  lockPointer();
+}
+
+const CONTROLS: [string, string][] = [
+  ["W A S D", "Move"],
+  ["Mouse", "Look around"],
+  ["Space", "Jump (3 total) · hold at a wall to wallrun"],
+  ["Left click", "Shoot splinters"],
+  ["Right click", "Scope · scroll wheel to zoom"],
+  ["R", "Reload"],
+  ["Q", "Dash (4 in the air)"],
+  ["E", "Parry — reflect a bullet for a power boost"],
+  ["F", "Throw a bomb"],
+  ["Hold C", "Grapple rope"],
+  ["Esc", "Pause menu"],
+];
+const BOTS: [string, string, string][] = [
+  ["Green table", "var(--crosshair)", "That's you! A fast, jumping, dashing, grappling table."],
+  ["Brown table", "#8a5a33", "Normal enemy. Hops around and shoots splinters. Break one and two more appear — up to 30. Then clear them all."],
+  ["Blue table", "#2f6fd6", "Fast chaser. Rushes you and explodes on contact. 20 of them appear when you must clear the tables, and the boss summons more."],
+  ["Red boss", "#b3121b", "Drops from the ceiling. Shoots hard-hitting bullets, drops swords that stun you, throws plates, sends shockwaves you must jump over and compromises your parry after 5 seconds."],
+];
+
+function ControlsList() {
+  return (
+    <ul className="space-y-1 text-left text-sm">
+      {CONTROLS.map(([k, d]) => (
+        <li key={k} className="grid grid-cols-[8rem_1fr] gap-2"><b>{k}</b><span className="opacity-80">{d}</span></li>
+      ))}
+    </ul>
+  );
+}
+function BotList() {
+  return (
+    <ul className="space-y-3 text-left text-sm">
+      {BOTS.map(([n, c, d]) => (
+        <li key={n} className="flex gap-3">
+          <span className="mt-1 h-4 w-6 shrink-0 rounded-sm border border-hud/40" style={{ background: c }} />
+          <span><b className="uppercase">{n}</b> — <span className="opacity-80">{d}</span></span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Home() {
+  useTick(150);
+  const [tab, setTab] = useState<"main" | "controls" | "bots">("main");
+  if (G.phase !== "home") return null;
+  return (
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-hud-scrim font-mono text-hud">
+      <div className="w-full max-w-xl rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
+        <h1 className="text-6xl font-black tracking-tight">Table Wars</h1>
+        <p className="mt-2 text-sm opacity-70">Break every table. Survive the red boss.</p>
+        {tab === "main" ? (
+          <div className="mx-auto mt-8 flex max-w-xs flex-col gap-3">
+            <button className={btnMain} onClick={playGame}>Play</button>
+            <button className={btnAlt} onClick={() => setTab("controls")}>Controls</button>
+            <button className={btnAlt} onClick={() => setTab("bots")}>Bot Types</button>
+            <button className={btnAlt} onClick={startTutorial}>Tutorial</button>
+          </div>
+        ) : (
+          <div className="mt-6">
+            <h2 className="mb-4 text-2xl font-black uppercase">{tab === "controls" ? "Controls" : "Bot Types"}</h2>
+            {tab === "controls" ? <ControlsList /> : <BotList />}
+            <button className={`${btnAlt} mt-6`} onClick={() => setTab("main")}>Back</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function Menu() {
   useTick(100);
   const phase = G.phase;
-  if (phase === "won" || (phase === "playing" && G.locked)) return null;
-  const paused = phase === "playing";
-  const title = phase === "lost" ? "You Got Splintered" : paused ? "Paused" : "Table Wars";
+  if (phase === "lost") {
+    return (
+      <div className="fixed inset-0 z-20 flex items-center justify-center bg-hud-scrim font-mono text-hud">
+        <div className="max-w-lg rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
+          <h1 className="text-5xl font-black tracking-tight">You Got Splintered</h1>
+          <div className="mt-6 flex justify-center gap-3">
+            <button className={btnMain} onClick={playGame}>Restart</button>
+            <button className={btnAlt} onClick={goHome}>Home</button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (phase !== "playing" || G.locked) return null;
+  const tut = G.mode === "tutorial";
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-hud-scrim font-mono text-hud">
-      <div className="max-w-lg rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
-        <h1 className="text-5xl font-black tracking-tight">{title}</h1>
-        <p className="mt-3 text-sm opacity-80">
-          Every table you break brings two more — up to 30. Clear them all, then survive the red boss.
-        </p>
-        <ul className="mt-5 space-y-1 text-left text-sm">
-          <li><b>WASD</b> move · <b>Mouse</b> look · <b>Space</b> jump ×3 / hold to hop or wallrun</li>
-          <li><b>Left click</b> shoot · <b>Right click</b> scope · <b>R</b> reload</li>
-          <li><b>Q</b> dash · <b>E</b> parry · <b>F</b> bomb · hold <b>C</b> grapple</li>
-        </ul>
-        <div className="mt-6 flex justify-center gap-3">
-          <button
-            className="pointer-events-auto rounded bg-crosshair px-8 py-3 text-lg font-black uppercase text-hud-ink"
-            onClick={() => start(false)}
-          >
-            {paused ? "Resume" : phase === "menu" ? "Play" : "Play Again"}
-          </button>
-          {paused && (
-            <button
-              className="pointer-events-auto rounded border-2 border-hud/40 px-8 py-3 text-lg font-black uppercase"
-              onClick={() => start(true)}
-            >
-              Restart
-            </button>
+      <div className="w-full max-w-sm rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
+        <h1 className="text-5xl font-black tracking-tight">{tut ? "Tutorial" : "Paused"}</h1>
+        <div className="mt-6 flex flex-col gap-3">
+          <button className={btnMain} onClick={resume}>Resume</button>
+          <button className={btnAlt} onClick={tut ? startTutorial : playGame}>Restart</button>
+          {tut ? (
+            <button className={btnAlt} onClick={finishTutorial}>Skip Tutorial</button>
+          ) : (
+            <button className={btnAlt} onClick={startTutorial}>Tutorial</button>
           )}
+          <button className={btnAlt} onClick={goHome}>Home</button>
         </div>
       </div>
     </div>
@@ -228,13 +308,17 @@ function WinScreen() {
               ["Bullets hit", G.hits],
               ["Accuracy", `${acc.toFixed(1)}%`],
               ["Tables defeated", G.kills],
+              ["Shots parried", G.parries],
             ].map(([label, value]) => (
               <div key={label} className="grid grid-cols-[1fr_auto] items-center border-b border-hud/20 bg-hud-track px-4 py-3">
                 <dt className="font-bold uppercase opacity-75">{label}</dt><dd className="text-2xl font-black">{value}</dd>
               </div>
             ))}
           </dl>
-          <button className="pointer-events-auto mt-8 rounded bg-crosshair px-8 py-3 text-lg font-black uppercase text-hud-ink" onClick={() => start(true)}>Play Again</button>
+          <div className="mt-8 flex gap-3">
+            <button className={btnMain} onClick={() => playGame()}>Play Again</button>
+            <button className={btnAlt} onClick={() => goHome()}>Home</button>
+          </div>
         </div>
       </div>
     </div>
@@ -242,6 +326,14 @@ function WinScreen() {
 }
 
 export function Game() {
+  const [, force] = useState(0);
+  useEffect(() => {
+    let done = false;
+    try { done = localStorage.getItem("tw-tutorial-done") === "1"; } catch { /* ignore */ }
+    if (!done) resetGame("tutorial");
+    else G.phase = "home";
+    force((n) => n + 1);
+  }, []);
   return (
     <div className="fixed inset-0 bg-black">
       <Canvas shadows dpr={[1, 1.75]} camera={{ position: [0, 3.2, 12], fov: 72, near: 0.1, far: 3000 }}>
@@ -268,6 +360,7 @@ export function Game() {
       </Canvas>
       <HUD />
       <Menu />
+      <Home />
       <WinScreen />
     </div>
   );
