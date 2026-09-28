@@ -53,6 +53,9 @@ const PLATE_SPEED = 190;
 const WAVE_H = 0.5 * 3.45 * TABLE_S; // half a table tall
 const WAVE_SPEED = 140;
 const WAVE_DMG = 20;
+const HEALTH_AMOUNT = 30;
+const HEALTH_INTERVAL = 10;
+const HEALTH_R = 7;
 const R = ROOM.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -206,6 +209,9 @@ export function World() {
   const blues = useMemo(() => Array.from({ length: BLUE_N }, () => ({ alive: false, pos: new THREE.Vector3(), dash: new THREE.Vector3(), hp: BLUE_HP, hitCd: 0, dashT: 8, yaw: 0 })), []);
   const blueT = useRef(6);
   const summonT = useRef(10);
+  const healthT = useRef(HEALTH_INTERVAL);
+  const health = useMemo(() => Array.from({ length: 16 }, () => ({ active: false, pos: new THREE.Vector3() })), []);
+  const healthRefs = useRef<(THREE.Group | null)[]>([]);
   const blueTop = useRef<THREE.InstancedMesh>(null);
   const blueLeg = useRef<THREE.InstancedMesh>(null);
   const boss = useRef({ landed: false, y: ROOM.h, vy: 0, pos: new THREE.Vector3(), bulletT: 1, specialT: 2, next: "sword" as "sword" | "stomp", quarterT: 3, aoeT: 5, yaw: 0 });
@@ -481,6 +487,9 @@ export function World() {
       blues.forEach((u) => (u.alive = false));
       blueT.current = 6;
       summonT.current = 10;
+      healthT.current = HEALTH_INTERVAL;
+      health.forEach((h) => (h.active = false));
+      MAP.health = [];
       hazards.forEach((h) => (h.active = false));
       waves.forEach((w) => (w.active = false));
       bomb.current.alive = false;
@@ -727,6 +736,15 @@ export function World() {
         }
       } else if (G.stage === "boss") {
         G.bossTime += dt;
+        healthT.current -= dt;
+        if (healthT.current <= 0) {
+          healthT.current += HEALTH_INTERVAL;
+          const h = health.find((item) => !item.active) ?? health[Math.floor(Math.random() * health.length)];
+          if (h) {
+            h.pos.copy(randomFloor(p));
+            h.active = true;
+          }
+        }
         if (G.bossTime >= PARRY_LOCK_AT && !G.parryLocked) {
           G.parryLocked = true;
           G.parryWin = 0;
@@ -798,6 +816,16 @@ export function World() {
           if (b.aoeT <= 0) {
             b.aoeT = 7;
             addHazard("aoe", p.x, p.z, 3);
+          }
+        }
+      }
+
+      // Collect health rings only while fighting the boss; never exceed full health.
+      if (G.stage === "boss" && G.playerHp < 100) {
+        for (const h of health) {
+          if (h.active && p.y < 8 && Math.hypot(p.x - h.pos.x, p.z - h.pos.z) < HEALTH_R) {
+            G.playerHp = Math.min(100, G.playerHp + HEALTH_AMOUNT);
+            h.active = false;
           }
         }
       }
@@ -1100,6 +1128,7 @@ export function World() {
     MAP.boss = G.stage === "boss" && b.landed ? { x: b.pos.x, z: b.pos.z } : null;
     MAP.tables = tables.flatMap((t) => (t.alive ? [t.pos.x, t.pos.z] : []));
     MAP.blues = blues.flatMap((u) => (u.alive ? [u.pos.x, u.pos.z] : []));
+    MAP.health = health.flatMap((h) => (h.active ? [h.pos.x, h.pos.z] : []));
 
     // --- splinter cones ---
     if (splI.current) {
@@ -1191,6 +1220,13 @@ export function World() {
       m.visible = w.active;
       m.position.set(w.x, WAVE_H / 2, w.z);
       m.scale.set(w.r, WAVE_H, w.r);
+    });
+    health.forEach((h, i) => {
+      const ring = healthRefs.current[i];
+      if (!ring) return;
+      ring.visible = h.active && G.stage === "boss" && G.phase === "playing";
+      ring.position.set(h.pos.x, 0.45, h.pos.z);
+      if (active) ring.rotation.z += dt * 0.6;
     });
     if (ropeRef.current) {
       ropeRef.current.visible = G.grappling;
@@ -1316,6 +1352,26 @@ export function World() {
           <cylinderGeometry args={[1, 1, 1, 64, 1, true]} />
           <meshBasicMaterial color="#ff2a2a" transparent opacity={0.7} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
+      ))}
+      {health.map((_, i) => (
+        <group key={i} ref={(group) => { healthRefs.current[i] = group; }} visible={false}>
+          <mesh rotation-x={-Math.PI / 2}>
+            <torusGeometry args={[HEALTH_R * 0.75, 0.5, 10, 40]} />
+            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+          </mesh>
+          <mesh rotation-x={-Math.PI / 2} position={[0, 0.08, 0]}>
+            <ringGeometry args={[0, HEALTH_R * 0.75, 40]} />
+            <meshBasicMaterial color="var(--crosshair)" transparent opacity={0.2} depthWrite={false} side={THREE.DoubleSide} />
+          </mesh>
+          <mesh position={[0, 0.2, 0]}>
+            <boxGeometry args={[4, 0.25, 1]} />
+            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+          </mesh>
+          <mesh position={[0, 0.2, 0]}>
+            <boxGeometry args={[1, 0.25, 4]} />
+            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+          </mesh>
+        </group>
       ))}
       <mesh ref={plateRef} visible={false} castShadow>
         <cylinderGeometry args={[PLATE_R, PLATE_R, 2.2, 48]} />

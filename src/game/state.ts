@@ -121,4 +121,4 @@ export function lockPointer() {
 }
 
 // Minimap snapshot, written by World each frame, read by the HUD.
-export const MAP = { px: 0, pz: 0, yaw: 0, boss: null as null | { x: number; z: number }, tables: [] as number[], blues: [] as number[] };
+export const MAP = { px: 0, pz: 0, yaw: 0, boss: null as null | { x: number; z: number }, tables: [] as number[], blues: [] as number[], health: [] as number[] };
