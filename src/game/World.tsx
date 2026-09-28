@@ -551,6 +551,7 @@ export function World() {
       if (k["KeyS"]) wish.sub(f);
       if (k["KeyD"]) wish.add(rgt);
       if (k["KeyA"]) wish.sub(rgt);
+      if (stunned) wish.set(0, 0, 0);
       if (wish.lengthSq()) wish.normalize();
       const space = !!k["Space"];
 
@@ -566,7 +567,7 @@ export function World() {
       }
       if (!G.wallrun) {
         if (grounded.current && !G.grappling) {
-          if (space) {
+          if (space && !stunned) {
             vy.current = JUMP_V;
             grounded.current = false;
           } else {
@@ -651,7 +652,7 @@ export function World() {
         }
       }
       fireT.current -= dt;
-      if (G.firing && (buffed || (G.ammo > 0 && G.reloading <= 0)) && fireT.current <= 0) {
+      if (G.firing && !stunned && (buffed || (G.ammo > 0 && G.reloading <= 0)) && fireT.current <= 0) {
         fireT.current = buffed ? FIRE_INTERVAL / 3 : FIRE_INTERVAL;
         if (!buffed) G.ammo--;
         G.shots++;
@@ -702,7 +703,7 @@ export function World() {
         t.bob += dt * speed * 0.35;
         t.yaw = Math.atan2(cam.position.x - bp.x, cam.position.z - bp.z);
         t.shootT -= dt;
-        if (t.shootT <= 0) {
+        if (t.shootT <= 0 && !t.passive) {
           t.shootT = 0.45 + Math.random() * 0.4;
           const from = bp.clone().setY(bp.y + 3.2 * t.s);
           if (from.distanceTo(cam.position) < 380) {
@@ -725,12 +726,19 @@ export function World() {
           b.pos.set(0, 0, 0);
         }
       } else if (G.stage === "boss") {
+        G.bossTime += dt;
+        if (G.bossTime >= PARRY_LOCK_AT && !G.parryLocked) {
+          G.parryLocked = true;
+          G.parryWin = 0;
+          G.compromisedT = 3;
+        }
         if (!b.landed) {
           b.y += b.vy * dt;
           if (b.y <= 0) {
             b.y = 0;
             b.landed = true;
             G.shake = 1;
+            addWave(b.pos.x, b.pos.z);
             if (Math.hypot(p.x, p.z) < BOSS_ZONE && p.y < 30) damagePlayer(9999, true);
           }
         } else {
@@ -804,7 +812,7 @@ export function World() {
         u.dashT -= dt;
         if (u.dashT <= 0) {
           u.dashT = 10 + Math.random() * 10;
-          u.dash.set(p.x - u.pos.x, 0, p.z - u.pos.z).normalize().multiplyScalar(160);
+          u.dash.set(p.x - u.pos.x, 0, p.z - u.pos.z).normalize().multiplyScalar(BLUE_DASH);
         }
         u.pos.addScaledVector(u.dash, dt);
         u.dash.multiplyScalar(Math.exp(-3 * dt));
@@ -830,7 +838,11 @@ export function World() {
               const ang = (Math.atan2(-p.z, p.x) - h.a0 + Math.PI * 4) % (Math.PI * 2);
               if (ang <= Math.PI / 2) damagePlayer(BIG_DMG);
             } else if (h.kind === "sword") {
-              if (Math.hypot(p.x - h.x, p.z - h.z) < SWORD_R && p.y < 40) damagePlayer(BIG_DMG);
+              if (Math.hypot(p.x - h.x, p.z - h.z) < SWORD_R && p.y < 40) {
+                G.stun = STUN_TIME;
+                G.hurtFlash = 0.25;
+              }
+              G.bombBig = BOMB_BIG_TIME;
               G.shake = Math.max(G.shake, 0.4);
             } else if (h.kind === "stomp") {
               const dir = new THREE.Vector3(Math.sin(b.yaw), 0, Math.cos(b.yaw));
@@ -838,6 +850,7 @@ export function World() {
               plate.current.pos.set(b.pos.x, PLATE_R, b.pos.z).addScaledVector(dir, PLATE_R + BOSS_S * 3);
               plate.current.prev.copy(plate.current.pos);
               plate.current.vel.copy(dir).multiplyScalar(PLATE_SPEED);
+              addWave(b.pos.x, b.pos.z);
               G.shake = Math.max(G.shake, 0.8);
             } else {
               if (Math.hypot(p.x - h.x, p.z - h.z) < AOE_R) damagePlayer(AOE_DMG);
@@ -860,10 +873,10 @@ export function World() {
         q.prev.copy(q.pos);
         q.pos.addScaledVector(q.vel, dt);
         const playerBody = tmpV.copy(cam.position).setY(cam.position.y - 1);
-        const hitPlayer = segSphere(q.prev, q.pos, playerBody, PLATE_R + PLAYER_R) < Infinity;
+        const hitPlayer = segSphere(q.prev, q.pos, playerBody, PLATE_HIT_R + PLAYER_R) < Infinity;
         const hitWorld = Math.hypot(q.pos.x, q.pos.z) > R - PLATE_R || segSolids(q.prev, q.pos) < Infinity;
         if (hitPlayer) {
-          damagePlayer(BIG_DMG);
+          damagePlayer(PLATE_DMG);
           q.alive = false;
         } else if (hitWorld) q.alive = false;
       }
@@ -887,6 +900,70 @@ export function World() {
             bm.alive = false;
             explode(q.clone());
           }
+        }
+      }
+
+      // --- boss landing shockwaves (jump over them) ---
+      for (const w of waves) {
+        if (!w.active) continue;
+        const r0 = w.r;
+        w.r += WAVE_SPEED * dt;
+        if (w.r > R * 2) { w.active = false; continue; }
+        const d = Math.hypot(p.x - w.x, p.z - w.z);
+        if (!w.hit && d >= r0 - PLAYER_R - 1 && d <= w.r + PLAYER_R + 1 && p.y < WAVE_H) {
+          w.hit = true;
+          damagePlayer(WAVE_DMG);
+        }
+      }
+
+      // --- stage clear check ---
+      G.bluesAlive = blues.reduce((n, u) => n + (u.alive ? 1 : 0), 0);
+      if (G.mode === "game" && G.stage === "tables" && G.capReached && aliveCount() === 0 && G.bluesAlive === 0) {
+        G.stage = "incoming";
+        G.bossWarn = BOSS_WARN;
+        G.playerHp = 100;
+      }
+
+      // --- tutorial ---
+      if (G.mode === "tutorial") {
+        const s = G.tutStep;
+        if (tutSetup.current !== s) {
+          tutSetup.current = s;
+          tutDist.current = 0;
+          tutKills.current = G.kills;
+          tables.forEach((t) => (t.alive = false));
+          blues.forEach((u) => (u.alive = false));
+          botPool.forEach((x) => (x.alive = false));
+          G.tut = { enter: false, dashed: false, zoomed: false, bombed: false };
+          const ahead = p.clone().addScaledVector(f, 70).setY(0);
+          clampCircle(ahead, 20);
+          if (s === 7 || s === 8) {
+            const t = spawnTable(ahead);
+            if (t) t.passive = true;
+          }
+          if (s === 9) spawnTable(ahead);
+          if (s === 10) for (let i = 0; i < 3; i++) spawnBlue(randomFloor(p));
+        }
+        if (s === 1 && grounded.current) tutDist.current += v.length() * dt;
+        if (s === 9 && aliveCount() === 0) spawnTable(randomFloor(p));
+        const alive = blues.some((u) => u.alive);
+        const done = [
+          G.tut.enter,
+          tutDist.current > 40,
+          G.airJumps === 0,
+          G.wallrun,
+          G.tut.dashed,
+          G.grappling,
+          G.tut.zoomed,
+          G.kills > tutKills.current,
+          G.tut.bombed,
+          G.parries > 0,
+          !alive,
+          G.tut.enter,
+        ][s];
+        if (done) {
+          if (s >= TUT_STEPS.length - 1) finishTutorial();
+          else G.tutStep++;
         }
       }
     }
@@ -939,7 +1016,7 @@ export function World() {
             const tp = segSphere(bl.prev, bl.pos, body, 1.6 + BOT_BULLET_HALF);
             if (tp < tSolid && G.phase === "playing") {
               bl.alive = false;
-              if (G.parryWin > 0) {
+              if (G.parryWin > 0 && !G.parryLocked) {
                 let tgt: THREE.Vector3 | null = null;
                 if (bossLive() && b.landed) tgt = new THREE.Vector3(b.pos.x, b.y + 24, b.pos.z);
                 else {
@@ -959,6 +1036,7 @@ export function World() {
                 G.parryWin = 0;
                 G.buff = BUFF_TIME;
                 G.parryFlash = 0.3;
+                G.parries++;
               } else damagePlayer(bl.dmg);
             } else if (tSolid < Infinity) bl.alive = false;
           }
@@ -1059,6 +1137,7 @@ export function World() {
     if (bombMesh.current) {
       bombMesh.current.visible = bomb.current.alive;
       bombMesh.current.position.copy(bomb.current.pos);
+      bombMesh.current.scale.setScalar(G.bombBig > 0 ? 1.5 : 1);
     }
     booms.forEach((bm, i) => {
       const m = boomRefs.current[i];
@@ -1103,8 +1182,16 @@ export function World() {
     if (plateRef.current) {
       plateRef.current.visible = plate.current.alive;
       plateRef.current.position.copy(plate.current.pos);
-      plateRef.current.rotation.y = Math.atan2(plate.current.vel.x, plate.current.vel.z);
+      // flat face (cylinder axis) points along the velocity
+      if (plate.current.vel.lengthSq() > 0) plateRef.current.quaternion.setFromUnitVectors(UP, tmpV.copy(plate.current.vel).normalize());
     }
+    waves.forEach((w, i) => {
+      const m = waveRefs.current[i];
+      if (!m) return;
+      m.visible = w.active;
+      m.position.set(w.x, WAVE_H / 2, w.z);
+      m.scale.set(w.r, WAVE_H, w.r);
+    });
     if (ropeRef.current) {
       ropeRef.current.visible = G.grappling;
       if (G.grappling) {
@@ -1224,7 +1311,13 @@ export function World() {
           </mesh>
         ))}
       </group>
-      <mesh ref={plateRef} visible={false} rotation-x={Math.PI / 2} castShadow>
+      {waves.map((_, i) => (
+        <mesh key={i} ref={(m) => { waveRefs.current[i] = m; }} visible={false}>
+          <cylinderGeometry args={[1, 1, 1, 64, 1, true]} />
+          <meshBasicMaterial color="#ff2a2a" transparent opacity={0.7} side={THREE.DoubleSide} depthWrite={false} />
+        </mesh>
+      ))}
+      <mesh ref={plateRef} visible={false} castShadow>
         <cylinderGeometry args={[PLATE_R, PLATE_R, 2.2, 48]} />
         <meshStandardMaterial color="#e8edf0" roughness={0.28} metalness={0.18} />
       </mesh>
