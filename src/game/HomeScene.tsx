@@ -12,7 +12,7 @@ function ArenaShowcase() {
     const time = clock.elapsedTime;
     const dt = Math.min(raw, 0.05);
     const angle = time * 0.11 + Math.PI / 4;
-    camera.position.set(Math.cos(angle) * 116, 92, Math.sin(angle) * 116);
+    camera.position.set(Math.cos(angle) * 82, 65, Math.sin(angle) * 82);
     camera.lookAt(0, 3, 0);
     FIGHTERS.forEach(([x, z], i) => {
       const target = FIGHTERS[(i + 1) % FIGHTERS.length];

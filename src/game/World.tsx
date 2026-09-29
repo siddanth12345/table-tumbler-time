@@ -449,7 +449,7 @@ export function World() {
           const height = pos.current.y;
           const tier = height > BOSS_HEIGHT ? { radius: BOMB_R * 6, damage: 25, cooldown: 10, bossDelay: true }
             : height > BOSS_HEIGHT / 2 ? { radius: TABLE_W * 2, damage: 10, cooldown: 5, bossDelay: false }
-            : height >= BOSS_HEIGHT / 2 - 1 ? { radius: TABLE_W * 1.5, damage: 5, cooldown: 2, bossDelay: false }
+            : height >= BOSS_HEIGHT / 2 - 3 ? { radius: TABLE_W * 1.5, damage: 5, cooldown: 2, bossDelay: false }
             : { radius: TABLE_W * 0.75, damage: 5, cooldown: 1, bossDelay: false };
           Object.assign(slam.current, { active: true, radius: tier.radius, damage: tier.damage, bossDelay: tier.bossDelay });
           G.slamCd = tier.cooldown;
@@ -1082,7 +1082,10 @@ export function World() {
               const impact = bl.prev.clone().lerp(bl.pos, tHit);
               areaHit(impact, SHOT_AOE_R, bl.dmg);
               if (bestTable || blueHit || bossT < bestT) G.hitFlash = 0.15;
-            } else if (tSolid < Infinity) bl.alive = false;
+            } else if (tSolid < Infinity) {
+              bl.alive = false;
+              areaHit(bl.prev.clone().lerp(bl.pos, tSolid), SHOT_AOE_R, bl.dmg);
+            }
           } else {
             const body = tmpV.copy(cam.position).setY(cam.position.y - 1);
             const tp = segSphere(bl.prev, bl.pos, body, 1.6 + BOT_BULLET_HALF);
