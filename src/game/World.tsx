@@ -448,8 +448,8 @@ export function World() {
         if (!grounded.current && G.slamCd <= 0 && !slam.current.active) {
           const height = pos.current.y;
           const tier = height > BOSS_HEIGHT ? { radius: BOMB_R * 6, damage: 25, cooldown: 10, bossDelay: true }
-            : height > BOSS_HEIGHT / 2 ? { radius: TABLE_W * 2, damage: 10, cooldown: 5, bossDelay: false }
-            : height >= BOSS_HEIGHT / 2 - 3 ? { radius: TABLE_W * 1.5, damage: 5, cooldown: 2, bossDelay: false }
+            : height > BOSS_HEIGHT * 0.75 ? { radius: TABLE_W * 2, damage: 10, cooldown: 5, bossDelay: false }
+            : height >= BOSS_HEIGHT / 2 ? { radius: TABLE_W * 1.5, damage: 5, cooldown: 2, bossDelay: false }
             : { radius: TABLE_W * 0.75, damage: 5, cooldown: 1, bossDelay: false };
           Object.assign(slam.current, { active: true, radius: tier.radius, damage: tier.damage, bossDelay: tier.bossDelay });
           G.slamCd = tier.cooldown;
