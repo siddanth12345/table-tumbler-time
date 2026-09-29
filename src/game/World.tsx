@@ -56,6 +56,8 @@ const WAVE_DMG = 20;
 const HEALTH_AMOUNT = 30;
 const HEALTH_INTERVAL = 10;
 const HEALTH_R = 7;
+const SHOT_AOE_R = TABLE_W / 2;
+const BOSS_HEIGHT = 3.45 * BOSS_S;
 const R = ROOM.r;
 const UP = new THREE.Vector3(0, 1, 0);
 
@@ -171,8 +173,8 @@ const EYE_M = [-1, 1].map((x) => mk([x, 3.2, 2.02], [1, 1, 1]));
 const tmpM = new THREE.Matrix4(), tmpM2 = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
 const ONE = new THREE.Vector3(1, 1, 1);
 const zAxis = new THREE.Vector3(0, 0, 1);
-const START = new THREE.Vector3(0, 0, 120);
-const BOT_START = new THREE.Vector3(0, 0, -100);
+const START = new THREE.Vector3(0, 0, 48);
+const BOT_START = new THREE.Vector3(0, 0, -40);
 const HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 
 function newTable(): Table {
@@ -191,6 +193,9 @@ export function World() {
   const hv = useRef(new THREE.Vector3());
   const vy = useRef(0);
   const grounded = useRef(true);
+  const slam = useRef<{ active: boolean; radius: number; damage: number; bossDelay: boolean }>({ active: false, radius: 0, damage: 0, bossDelay: false });
+  const slamRef = useRef<THREE.Mesh>(null);
+  const slamFx = useRef({ life: 0, x: 0, z: 0, radius: 0 });
   const fireT = useRef(0);
   const lastYaw = useRef(0);
   const pendingYaw = useRef(0);
@@ -325,6 +330,22 @@ export function World() {
       document.exitPointerLock?.();
     }
   };
+  const areaHit = (at: THREE.Vector3, radius: number, damage: number, bossDelay = false) => {
+    const y = at.y;
+    for (const t of tables) if (t.alive && Math.hypot(t.pos.x - at.x, t.pos.z - at.z) < radius + 3 * t.s && Math.abs(t.pos.y + 2.6 * t.s - y) < radius + 3 * t.s) hitTable(t, damage);
+    for (const u of blues) if (u.alive && Math.hypot(u.pos.x - at.x, u.pos.z - at.z) < radius + 3 * TABLE_S && Math.abs(2.6 * TABLE_S - y) < radius + 3 * TABLE_S) {
+      u.hp -= damage;
+      if (u.hp <= 0) { u.alive = false; burst(tmpV.copy(u.pos).setY(4), TABLE_S, 5); }
+    }
+    if (bossLive() && boss.current.landed && Math.hypot(boss.current.pos.x - at.x, boss.current.pos.z - at.z) < radius + BOSS_S * 3 && y < BOSS_HEIGHT + radius) {
+      hitBoss(damage / DMG);
+      if (bossDelay && G.phase === "playing") {
+        // Hold the next regular shot and the current rotating special attack for two seconds.
+        boss.current.bulletT = Math.max(boss.current.bulletT, 2);
+        boss.current.specialT = Math.max(boss.current.specialT, 2);
+      }
+    }
+  };
   const bossBox = (min: THREE.Vector3, max: THREE.Vector3) => {
     const b = boss.current;
     min.set(b.pos.x - 3 * BOSS_S, b.y, b.pos.z - 3 * BOSS_S);
@@ -423,7 +444,21 @@ export function World() {
           G.grappling = true;
         }
       }
-      if (e.code === "KeyR" && G.buff <= 0 && G.ammo < MAG && G.reloading <= 0) G.reloading = 1.5;
+      if (e.code === "KeyR") {
+        if (!grounded.current && G.slamCd <= 0 && !slam.current.active) {
+          const height = pos.current.y;
+          const tier = height > BOSS_HEIGHT ? { radius: BOMB_R * 6, damage: 25, cooldown: 10, bossDelay: true }
+            : height > BOSS_HEIGHT / 2 ? { radius: TABLE_W * 2, damage: 10, cooldown: 5, bossDelay: false }
+            : height >= BOSS_HEIGHT / 2 - 1 ? { radius: TABLE_W * 1.5, damage: 5, cooldown: 2, bossDelay: false }
+            : { radius: TABLE_W * 0.75, damage: 5, cooldown: 1, bossDelay: false };
+          Object.assign(slam.current, { active: true, radius: tier.radius, damage: tier.damage, bossDelay: tier.bossDelay });
+          G.slamCd = tier.cooldown;
+          G.grappling = false;
+          G.wallrun = false;
+          hv.current.set(0, 0, 0);
+          vy.current = -500;
+        } else if (grounded.current && G.buff <= 0 && G.ammo < MAG && G.reloading <= 0) G.reloading = 1.5;
+      }
     };
     const ku = (e: KeyboardEvent) => {
       keys.current[e.code] = false;
@@ -528,6 +563,8 @@ export function World() {
       G.buff = Math.max(0, G.buff - dt);
       G.dashCd = Math.max(0, G.dashCd - dt);
       G.bombCd = Math.max(0, G.bombCd - dt);
+      G.slamCd = Math.max(0, G.slamCd - dt);
+      slamFx.current.life = Math.max(0, slamFx.current.life - dt);
       G.stun = Math.max(0, G.stun - dt);
       G.bombBig = Math.max(0, G.bombBig - dt);
       G.compromisedT = Math.max(0, G.compromisedT - dt);
@@ -618,6 +655,7 @@ export function World() {
 
       // --- integrate + collide ---
       const prevY = p.y;
+      if (slam.current.active) { v.set(0, 0, 0); vy.current = -500; }
       p.addScaledVector(v, dt);
       p.y += vy.current * dt;
       for (const s of SOLIDS) {
@@ -640,6 +678,13 @@ export function World() {
       } else if (grounded.current && p.y > sup + 0.05) grounded.current = false;
       for (const s of SOLIDS) if (p.y < s.y1 - STEP && p.y + BODY_H > s.y0) pushOut(p, s, PLAYER_R);
       clampCircle(p, PLAYER_R);
+      if (slam.current.active && grounded.current) {
+        const { radius, damage, bossDelay } = slam.current;
+        slam.current.active = false;
+        areaHit(p, radius, damage, bossDelay);
+        Object.assign(slamFx.current, { life: 0.4, x: p.x, z: p.z, radius });
+        G.shake = Math.max(G.shake, 0.5);
+      }
       if (p.y > ROOM.h - BODY_H - 1) {
         p.y = ROOM.h - BODY_H - 1;
         if (vy.current > 0) vy.current = 0;
@@ -1031,13 +1076,10 @@ export function World() {
             if (Math.min(bestT, bossT) < tSolid) {
               bl.alive = false;
               G.hits++;
-              if (bossT < bestT) hitBoss(bl.dmg > DMG ? 2 : 1);
-              else if (bestTable) hitTable(bestTable, bl.dmg);
-              else if (blueHit) {
-                blueHit.hp -= bl.dmg;
-                G.hitFlash = 0.15;
-                if (blueHit.hp <= 0) { blueHit.alive = false; burst(tmpV.copy(blueHit.pos).setY(4), TABLE_S, 5); }
-              }
+              const tHit = Math.min(bestT, bossT);
+              const impact = bl.prev.clone().lerp(bl.pos, tHit);
+              areaHit(impact, SHOT_AOE_R, bl.dmg);
+              if (bestTable || blueHit || bossT < bestT) G.hitFlash = 0.15;
             } else if (tSolid < Infinity) bl.alive = false;
           } else {
             const body = tmpV.copy(cam.position).setY(cam.position.y - 1);
@@ -1228,6 +1270,13 @@ export function World() {
       ring.position.set(h.pos.x, 0.45, h.pos.z);
       if (active) ring.rotation.z += dt * 0.6;
     });
+    if (slamRef.current) {
+      const fx = slamFx.current;
+      slamRef.current.visible = fx.life > 0;
+      slamRef.current.position.set(fx.x, 0.35, fx.z);
+      slamRef.current.scale.setScalar(fx.radius * (1 - fx.life * 0.6));
+      (slamRef.current.material as THREE.MeshBasicMaterial).opacity = fx.life * 1.5;
+    }
     if (ropeRef.current) {
       ropeRef.current.visible = G.grappling;
       if (G.grappling) {
@@ -1373,6 +1422,10 @@ export function World() {
           </mesh>
         </group>
       ))}
+      <mesh ref={slamRef} rotation-x={-Math.PI / 2} visible={false}>
+        <ringGeometry args={[0.85, 1, 64]} />
+        <meshBasicMaterial color="var(--crosshair)" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
+      </mesh>
       <mesh ref={plateRef} visible={false} castShadow>
         <cylinderGeometry args={[PLATE_R, PLATE_R, 2.2, 48]} />
         <meshStandardMaterial color="#e8edf0" roughness={0.28} metalness={0.18} />
