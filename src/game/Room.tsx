@@ -3,13 +3,14 @@ import * as THREE from "three";
 import { woodFloor, wallpaper, rug } from "./textures";
 
 // Cylinder with same floor area as the old 600x600 room, same ceiling height
-export const ROOM = { r: Math.sqrt((600 * 600) / Math.PI), h: 600 };
+export const ARENA_SCALE = 0.4;
+export const ROOM = { r: Math.sqrt((600 * 600) / Math.PI) * ARENA_SCALE, h: 600 };
 const S = 10;
 
 export type Solid = { x: number; z: number; hw: number; hd: number; y0: number; y1: number; c?: string };
 
 // Collidable, standable, grappleable solids (world units)
-export const SOLIDS: Solid[] = [
+const BASE_SOLIDS: Solid[] = [
   // sofas (seat + back)
   { x: 0, z: 170, hw: 50, hd: 20, y0: 0, y1: 23 },
   { x: 0, z: 186, hw: 50, hd: 5, y0: 0, y1: 46 },
@@ -39,6 +40,7 @@ export const SOLIDS: Solid[] = [
   // ottoman
   { x: 200, z: 0, hw: 18, hd: 18, y0: 0, y1: 14, c: "#5a4a6a" },
 ];
+export const SOLIDS: Solid[] = BASE_SOLIDS.map((s) => ({ ...s, x: s.x * ARENA_SCALE, z: s.z * ARENA_SCALE, hw: s.hw * ARENA_SCALE, hd: s.hd * ARENA_SCALE }));
 
 function Box({ p, s, c, r = 0 }: { p: [number, number, number]; s: [number, number, number]; c: string; r?: number }) {
   return (
@@ -63,7 +65,8 @@ function Sofa({ p, r = 0 }: { p: [number, number, number]; r?: number }) {
 }
 
 export function Room() {
-  const { r, h } = ROOM;
+  const { h } = ROOM;
+  const r = ROOM.r / ARENA_SCALE;
   const floor = useMemo(() => {
     const t = woodFloor();
     t.repeat.multiplyScalar(11);
@@ -76,7 +79,7 @@ export function Room() {
   }, []);
   const rugT = useMemo(rug, []);
   return (
-    <group>
+    <group scale={[ARENA_SCALE, 1, ARENA_SCALE]}>
       <mesh rotation-x={-Math.PI / 2} receiveShadow>
         <circleGeometry args={[r, 96]} />
         <meshStandardMaterial map={floor} roughness={0.6} />
@@ -106,7 +109,7 @@ export function Room() {
         </group>
       ))}
       {/* new props rendered straight from their collision boxes */}
-      {SOLIDS.filter((s) => s.c).map((s, i) => (
+      {BASE_SOLIDS.filter((s) => s.c).map((s, i) => (
         <Box key={i} p={[s.x, (s.y0 + s.y1) / 2, s.z]} s={[s.hw * 2, s.y1 - s.y0, s.hd * 2]} c={s.c!} />
       ))}
       {/* fridge details */}
