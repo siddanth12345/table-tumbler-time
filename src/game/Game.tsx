@@ -4,6 +4,8 @@ import { Environment, Lightformer } from "@react-three/drei";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { World } from "./World";
+import { HomeScene } from "./HomeScene";
+import { Button } from "@/components/ui/button";
 import { G, MAG, PARRY_CD, DASH_CD, BOMB_CD, TABLE_CAP, BOSS_HITS, resetGame, lockPointer, MAP, TUT_STEPS, goHome, finishTutorial } from "./state";
 import { ROOM, SOLIDS } from "./Room";
 
@@ -130,6 +132,7 @@ function HUD() {
           </span>
           <span>[Q] Dash {G.dashCd > 0 ? G.dashCd.toFixed(1) : "ready"}</span>
           <span>[F] Bomb {G.bombCd > 0 ? G.bombCd.toFixed(1) : "ready"}</span>
+           <span>[R] {G.slamCd > 0 ? `Slam ${G.slamCd.toFixed(1)}` : "Air slam / Reload"}</span>
           <span className={G.grappling ? "text-shield" : ""}>[C] Grapple</span>
         </div>
         <div className="flex gap-4 text-xs font-bold uppercase tracking-widest">
@@ -180,7 +183,7 @@ const CONTROLS: [string, string][] = [
   ["Space", "Jump (3 total) · hold at a wall to wallrun"],
   ["Left click", "Shoot splinters"],
   ["Right click", "Scope · scroll wheel to zoom"],
-  ["R", "Reload"],
+  ["R", "Reload on the ground · ground pound in the air (height changes its blast)"],
   ["Q", "Dash (4 in the air)"],
   ["E", "Parry — reflect a bullet for a power boost"],
   ["F", "Throw a bomb"],
@@ -221,24 +224,27 @@ function Home() {
   const [tab, setTab] = useState<"main" | "controls" | "bots">("main");
   if (G.phase !== "home") return null;
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-hud-scrim font-mono text-hud">
-      <div className="w-full max-w-xl rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
-        <h1 className="text-6xl font-black tracking-tight">Table Wars</h1>
-        <p className="mt-2 text-sm opacity-70">Break every table. Survive the red boss.</p>
+    <div className="fixed inset-0 z-20 overflow-auto font-mono text-hud">
+      <HomeScene />
+      <div className="relative flex min-h-full items-center justify-center bg-hud-scrim p-6 sm:justify-start sm:px-[8vw]">
+      <div className="w-full max-w-xl border-l-4 border-crosshair bg-hud-panel p-6 text-left shadow-2xl sm:p-10">
+        <h1 className="text-5xl font-black uppercase sm:text-7xl">Table Wars</h1>
+        <p className="mt-3 text-sm opacity-80">Break every table. Survive the red boss.</p>
         {tab === "main" ? (
-          <div className="mx-auto mt-8 flex max-w-xs flex-col gap-3">
-            <button className={btnMain} onClick={playGame}>Play</button>
-            <button className={btnAlt} onClick={() => setTab("controls")}>Controls</button>
-            <button className={btnAlt} onClick={() => setTab("bots")}>Bot Types</button>
-            <button className={btnAlt} onClick={startTutorial}>Tutorial</button>
+          <div className="mt-8 flex max-w-xs flex-col gap-3">
+            <Button className={btnMain} onClick={playGame}>Play</Button>
+            <Button className={btnAlt} onClick={() => setTab("controls")}>Controls</Button>
+            <Button className={btnAlt} onClick={() => setTab("bots")}>Bot Types</Button>
+            <Button className={btnAlt} onClick={startTutorial}>Tutorial</Button>
           </div>
         ) : (
           <div className="mt-6">
             <h2 className="mb-4 text-2xl font-black uppercase">{tab === "controls" ? "Controls" : "Bot Types"}</h2>
             {tab === "controls" ? <ControlsList /> : <BotList />}
-            <button className={`${btnAlt} mt-6`} onClick={() => setTab("main")}>Back</button>
+            <Button className={`${btnAlt} mt-6`} onClick={() => setTab("main")}>Back</Button>
           </div>
         )}
+      </div>
       </div>
     </div>
   );
@@ -253,8 +259,8 @@ function Menu() {
         <div className="max-w-lg rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
           <h1 className="text-5xl font-black tracking-tight">You Got Splintered</h1>
           <div className="mt-6 flex justify-center gap-3">
-            <button className={btnMain} onClick={playGame}>Restart</button>
-            <button className={btnAlt} onClick={goHome}>Home</button>
+            <Button className={btnMain} onClick={playGame}>Restart</Button>
+            <Button className={btnAlt} onClick={goHome}>Home</Button>
           </div>
         </div>
       </div>
@@ -267,14 +273,14 @@ function Menu() {
       <div className="w-full max-w-sm rounded-lg border-2 border-hud/30 bg-hud-panel p-8 text-center">
         <h1 className="text-5xl font-black tracking-tight">{tut ? "Tutorial" : "Paused"}</h1>
         <div className="mt-6 flex flex-col gap-3">
-          <button className={btnMain} onClick={resume}>Resume</button>
-          <button className={btnAlt} onClick={tut ? startTutorial : playGame}>Restart</button>
+          <Button className={btnMain} onClick={resume}>Resume</Button>
+          <Button className={btnAlt} onClick={tut ? startTutorial : playGame}>Restart</Button>
           {tut ? (
-            <button className={btnAlt} onClick={finishTutorial}>Skip Tutorial</button>
+            <Button className={btnAlt} onClick={finishTutorial}>Skip Tutorial</Button>
           ) : (
-            <button className={btnAlt} onClick={startTutorial}>Tutorial</button>
+            <Button className={btnAlt} onClick={startTutorial}>Tutorial</Button>
           )}
-          <button className={btnAlt} onClick={goHome}>Home</button>
+          <Button className={btnAlt} onClick={goHome}>Home</Button>
         </div>
       </div>
     </div>
@@ -341,8 +347,8 @@ function WinScreen() {
             ))}
           </dl>
           <div className="mt-8 flex gap-3">
-            <button className={btnMain} onClick={() => playGame()}>Play Again</button>
-            <button className={btnAlt} onClick={() => goHome()}>Home</button>
+            <Button className={btnMain} onClick={() => playGame()}>Play Again</Button>
+            <Button className={btnAlt} onClick={() => goHome()}>Home</Button>
           </div>
         </div>
       </div>

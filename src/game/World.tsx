@@ -512,6 +512,8 @@ export function World() {
       vy.current = 0;
       grounded.current = true;
       G.grappling = false;
+      slam.current.active = false;
+      slamFx.current.life = 0;
       cam.position.set(p.x, EYE, p.z);
       cam.lookAt(0, EYE, -100);
       lastYaw.current = new THREE.Euler().setFromQuaternion(cam.quaternion, "YXZ").y;
@@ -750,7 +752,7 @@ export function World() {
         t.vy -= GRAVITY * dt;
         bp.y = Math.max(0, bp.y + t.vy * dt);
         if (bp.y <= 0 && t.vy < 0) t.vy = 0;
-        const target = TABLE_S * (0.55 + 0.45 * (t.hp / TABLE_HP));
+        const target = TABLE_S * (0.55 + 0.45 * (t.hp / (t.summoned ? SUMMON_HP : TABLE_HP)));
         t.s = THREE.MathUtils.lerp(t.s, target, 1 - Math.exp(-8 * dt));
         for (const s of SOLIDS) if (s.y0 < 5 && bp.y < s.y1) pushOut(bp, s, 3 * t.s);
         clampCircle(bp, 3 * t.s);
