@@ -1406,25 +1406,25 @@ export function World() {
         <group key={i} ref={(group) => { healthRefs.current[i] = group; }} visible={false}>
           <mesh rotation-x={-Math.PI / 2}>
             <torusGeometry args={[HEALTH_R * 0.75, 0.5, 10, 40]} />
-            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+            <meshBasicMaterial color="#70f58d" toneMapped={false} />
           </mesh>
           <mesh rotation-x={-Math.PI / 2} position={[0, 0.08, 0]}>
             <ringGeometry args={[0, HEALTH_R * 0.75, 40]} />
-            <meshBasicMaterial color="var(--crosshair)" transparent opacity={0.2} depthWrite={false} side={THREE.DoubleSide} />
+            <meshBasicMaterial color="#70f58d" transparent opacity={0.2} depthWrite={false} side={THREE.DoubleSide} />
           </mesh>
           <mesh position={[0, 0.2, 0]}>
             <boxGeometry args={[4, 0.25, 1]} />
-            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+            <meshBasicMaterial color="#70f58d" toneMapped={false} />
           </mesh>
           <mesh position={[0, 0.2, 0]}>
             <boxGeometry args={[1, 0.25, 4]} />
-            <meshBasicMaterial color="var(--crosshair)" toneMapped={false} />
+            <meshBasicMaterial color="#70f58d" toneMapped={false} />
           </mesh>
         </group>
       ))}
       <mesh ref={slamRef} rotation-x={-Math.PI / 2} visible={false}>
         <ringGeometry args={[0.85, 1, 64]} />
-        <meshBasicMaterial color="var(--crosshair)" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
+        <meshBasicMaterial color="#70f58d" transparent opacity={0.6} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
       <mesh ref={plateRef} visible={false} castShadow>
         <cylinderGeometry args={[PLATE_R, PLATE_R, 2.2, 48]} />
